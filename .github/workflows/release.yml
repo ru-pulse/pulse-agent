@@ -1,0 +1,158 @@
+name: Release
+
+# Релиз собирается по тегу вида v1.2.3.
+#
+# Здесь намеренно нет сторонних actions: этот агент люди ставят себе на
+# компьютер, доверяя тому, что бинарник собран из опубликованного исходника.
+# Каждый чужой action в этой цепочке — ещё одно место, где подмена останется
+# незамеченной. Используются только официальные actions GitHub и gh CLI,
+# предустановленный на раннерах.
+#
+# Строже было бы приколотить actions к SHA вместо тегов версий; для этого
+# замените @v4 на @<полный sha> — GitHub Actions это поддерживает.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег для сборки (например v1.1.0)'
+        required: true
+
+permissions:
+  contents: write      # создать релиз
+  id-token: write      # подписать происхождение сборки
+  attestations: write
+
+env:
+  GO_VERSION: '1.23.4'
+
+jobs:
+  build:
+    name: Сборка и релиз
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+
+      - name: Определить версию
+        id: version
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Тесты перед релизом
+        run: |
+          go vet ./...
+          GOOS=windows go vet ./...
+          go test ./...
+
+      - name: Собрать все платформы
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          # Адрес control plane для официальных сборок задаётся переменной
+          # репозитория. В форке она пуста — и бинарник собирается нейтральным,
+          # со значением по умолчанию из исходника. Так форк не начинает молча
+          # ходить на чужой сервер.
+          DEFAULT_SERVER: ${{ vars.DEFAULT_SERVER }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            goos="${target%/*}"; goarch="${target#*/}"
+            ext=""
+            flags="-s -w -X main.Version=${VERSION}"
+            if [ -n "${DEFAULT_SERVER}" ]; then
+              flags="$flags -X main.DefaultServer=${DEFAULT_SERVER}"
+            fi
+            if [ "$goos" = "windows" ]; then
+              ext=".exe"
+              flags="$flags -H windowsgui"   # без чёрного окна при запуске
+            fi
+
+            echo "::group::$goos/$goarch"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "$flags" \
+              -o "dist/pulse-agent${ext}" ./cmd/pulse-agent
+
+            # Иконки едут вместе с бинарником: агент ищет их рядом с собой.
+            stage="pulse-agent-${VERSION}-${goos}-${goarch}"
+            mkdir -p "dist/$stage"
+            mv "dist/pulse-agent${ext}" "dist/$stage/"
+            cp assets/icons/tray-active.ico assets/icons/tray-paused.ico \
+               assets/icons/tray-attention.ico assets/icons/app.ico "dist/$stage/"
+            cp README.md LICENSE "dist/$stage/"
+
+            if [ "$goos" = "windows" ]; then
+              (cd dist && zip -qr "$stage.zip" "$stage")
+            else
+              (cd dist && tar czf "$stage.tar.gz" "$stage")
+            fi
+            rm -rf "dist/$stage"
+            echo "::endgroup::"
+          done
+
+          (cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Подтвердить происхождение сборки
+        # Привязывает артефакты к этому коммиту и этому workflow. Это то, чем
+        # проверяется заявление «бинарник собран из опубликованного исходника»:
+        # gh attestation verify покажет, откуда он взялся.
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'dist/*.tar.gz,dist/*.zip'
+
+      - name: Создать релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cat > /tmp/notes.md <<'NOTES'
+          ## Установка
+
+          Скачайте архив для своей системы, распакуйте и запустите `pulse-agent`.
+          Иконки должны лежать рядом с исполняемым файлом — в архиве они уже там.
+
+          Права администратора не нужны. Настройки открываются из иконки в трее
+          (Windows) или по адресу, который агент печатает при запуске.
+
+          ## Проверка бинарника
+
+          Сверьте контрольную сумму с `SHA256SUMS.txt`, а происхождение сборки —
+          командой:
+
+          ```
+          gh attestation verify <файл> --repo ${{ github.repository }}
+          ```
+
+          Она подтверждает, что архив собран этим workflow из этого коммита, а не
+          подложен кем-то по дороге.
+
+          ## Что делает агент
+
+          Отправляет только стадию проверки, тайминги и код ответа. Тело страниц
+          не читается и не передаётся. Ограничения (30 проверок/мин, только
+          GET/HEAD на портах 80/443, отказ от приватных адресов) зашиты в код и
+          не поднимаются сервером — см. `pulse-agent -limits` и README.
+          NOTES
+
+          # Теги v0.* помечаются как предрелиз: программа ещё не обкатана, и
+          # прятать это за словом "release" было бы нечестно.
+          prerelease=""
+          case "$TAG" in v0.*) prerelease="--prerelease" ;; esac
+
+          gh release create "$TAG" $prerelease \
+            --title "$TAG" \
+            --notes-file /tmp/notes.md \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS.txt

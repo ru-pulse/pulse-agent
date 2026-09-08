@@ -1,0 +1,11 @@
+# Собранные бинарники и архивы релизов
+dist/
+pulse-agent
+pulse-agent.exe
+
+# Локальное состояние агента — сюда попадает приватный ключ
+identity.json
+settings.json
+agent.log
+
+.DS_Store

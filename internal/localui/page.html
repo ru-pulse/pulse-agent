@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пульс Рунета — агент</title>
+<style>
+  :root {
+    --bg:#eef1f3; --surface:#fff; --surface-2:#e4eaed; --ink:#0f2027; --muted:#55707c;
+    --accent:#0f7a75; --accent-ink:#fff; --warn:#c2410c; --warn-soft:#fbe6da; --ok-soft:#dcf1ee;
+    --border:#d2dbdf; --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0b1418; --surface:#101c22; --surface-2:#16242b; --ink:#e7f1f2; --muted:#8fa8ae;
+    --accent:#35d6c8; --accent-ink:#06201d; --warn:#f2994a; --warn-soft:#3a2413;
+    --ok-soft:#103330; --border:#1f2f36;}}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 ui-sans-serif,system-ui,sans-serif}
+  .wrap{max-width:660px;margin:0 auto;padding:24px 20px 56px}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 20px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;margin-bottom:14px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px;font-weight:600}
+
+  .power{display:flex;align-items:center;gap:16px}
+  .power-dot{width:12px;height:12px;border-radius:50%;flex:none}
+  .power-dot.on{background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 22%,transparent)}
+  .power-dot.off{background:var(--muted)}
+  .power-text{flex:1}
+  .power-text strong{display:block;font-size:16px}
+  .power-text span{color:var(--muted);font-size:12px}
+  button{font:inherit;cursor:pointer;border-radius:9px;border:1px solid var(--border);
+    background:var(--surface-2);color:var(--ink);padding:9px 16px}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .stat-v{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+  .stat-l{font-size:11px;color:var(--muted);margin-top:2px}
+
+  .note{border-radius:10px;padding:11px 13px;font-size:13px;margin-top:12px}
+  .note.warn{background:var(--warn-soft);color:var(--warn)}
+  .note.ok{background:var(--ok-soft);color:var(--accent)}
+
+  label.row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:9px 0}
+  label.row + label.row{border-top:1px solid var(--border)}
+  label.row .l{font-size:13px}
+  label.row .l small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+  input[type=range]{width:190px;accent-color:var(--accent)}
+  input[type=text]{font:inherit;padding:9px 11px;border-radius:9px;border:1px solid var(--border);
+    background:var(--bg);color:var(--ink);width:100%;font-family:var(--mono);text-transform:uppercase}
+  input[type=checkbox]{width:17px;height:17px;accent-color:var(--accent)}
+  .bind-row{display:flex;gap:9px;margin-top:10px}
+  .bind-row input{flex:1}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  td{padding:6px 8px 6px 0;border-bottom:1px solid var(--border);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  td.dom{white-space:normal;word-break:break-all}
+  .pill{font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px}
+  .pill.ok{background:var(--ok-soft);color:var(--accent)}
+  .pill.bad{background:var(--warn-soft);color:var(--warn)}
+  .muted{color:var(--muted)}
+  code{font-family:var(--mono);font-size:11.5px;background:var(--surface-2);padding:1px 5px;border-radius:5px}
+  pre{font-family:var(--mono);font-size:11px;background:var(--surface-2);padding:11px;border-radius:9px;
+    overflow-x:auto;margin:8px 0 0;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Пульс Рунета</h1>
+  <p class="sub">Агент на этом компьютере · <span id="agent-id" class="muted"></span></p>
+
+  <div class="card">
+    <div class="power">
+      <div id="dot" class="power-dot off"></div>
+      <div class="power-text">
+        <strong id="power-title">Загрузка…</strong>
+        <span id="power-sub"></span>
+      </div>
+      <button id="pause-btn" hidden>Пауза 2 часа</button>
+      <button id="toggle-btn" class="primary">…</button>
+    </div>
+    <div id="conn-note" class="note warn" hidden></div>
+  </div>
+
+  <div class="card">
+    <h2>Партнёр</h2>
+    <div id="bind-state"></div>
+    <div class="bind-row">
+      <input id="code-input" type="text" placeholder="КОД ИЗ ЛИЧНОГО КАБИНЕТА" maxlength="32">
+      <button id="bind-btn">Привязать</button>
+    </div>
+    <div id="bind-msg" class="note" hidden></div>
+  </div>
+
+  <div class="card">
+    <h2>Сегодня</h2>
+    <div class="stats">
+      <div><div class="stat-v" id="s-checks">—</div><div class="stat-l">проверок</div></div>
+      <div><div class="stat-v" id="s-traffic">—</div><div class="stat-l">трафика</div></div>
+      <div><div class="stat-v" id="s-total">—</div><div class="stat-l">проверок всего</div></div>
+    </div>
+    <div id="status-note" class="note warn" hidden></div>
+  </div>
+
+  <div class="card">
+    <h2>Настройки</h2>
+    <label class="row">
+      <span class="l">Проверок в минуту
+        <small>Верхняя граница <b id="hard-limit">30</b> зашита в программу и не поднимается ни настройкой, ни сервером</small>
+      </span>
+      <span style="display:flex;align-items:center;gap:10px">
+        <input type="range" id="limit" min="1" max="30" step="1">
+        <b id="limit-val" style="font-family:var(--mono);min-width:2ch">—</b>
+      </span>
+    </label>
+    <label class="row">
+      <span class="l">Запускать при входе в систему<small>Не требует прав администратора</small></span>
+      <input type="checkbox" id="autostart">
+    </label>
+  </div>
+
+  <div class="card">
+    <h2>Последние проверки</h2>
+    <table><tbody id="log"><tr><td class="muted">пока пусто</td></tr></tbody></table>
+    <p class="muted" style="margin:12px 0 0;font-size:12px">
+      Наружу уходит только это: стадия, тайминги и код ответа. Тело страницы не читается и не передаётся.
+    </p>
+    <pre id="sample">—</pre>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let latest = null;
+let dirty = false;   // не затирать ползунок, пока человек его двигает
+
+async function api(path, opts) {
+  const res = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json' } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok && !body.message) throw new Error(body.message || res.statusText);
+  return body;
+}
+
+const fmtBytes = (b) => {
+  if (!b) return '0 КБ';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' КБ';
+  return (b / 1024 / 1024).toFixed(1) + ' МБ';
+};
+
+const REASONS = {
+  no_partner: 'Агент не привязан к партнёру — проверки ни за кем не числятся.',
+  vpn_or_datacenter: 'Подключение выглядит как VPN или дата-центр. Нужен обычный домашний или мобильный интернет.',
+  low_reputation: 'Низкая репутация: результаты расходятся с другими агентами или не проходят контрольные проверки.',
+  agent_blocked: 'Агент заблокирован оператором сервиса.',
+};
+
+function render(d) {
+  latest = d;
+  $('#agent-id').textContent = d.agentId || '';
+  $('#hard-limit').textContent = d.hardLimit;
+  $('#limit').max = d.hardLimit;
+
+  const working = d.state.working;
+  $('#dot').className = 'power-dot ' + (working ? 'on' : 'off');
+  $('#power-title').textContent = working ? 'Работает' : 'Остановлен';
+  $('#toggle-btn').textContent = working ? 'Остановить' : 'Запустить';
+  $('#pause-btn').hidden = !working;
+
+  let sub = '';
+  if (d.state.reason === 'paused_until' && d.settings.pausedUntil) {
+    const until = new Date(d.settings.pausedUntil);
+    sub = 'На паузе до ' + until.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  } else if (working) {
+    sub = d.state.connected ? 'Связь с сервером есть' : 'Нет связи с сервером';
+  } else {
+    sub = 'Проверки не выполняются';
+  }
+  $('#power-sub').textContent = sub;
+
+  const connBad = working && !d.state.connected;
+  $('#conn-note').hidden = !connBad;
+  if (connBad) $('#conn-note').textContent = 'Нет связи с сервером: ' + (d.state.lastError || d.serverError || '');
+
+  const srv = d.server;
+  if (srv && srv.boundToPartner) {
+    $('#bind-state').innerHTML = `Привязан к <b>${srv.partnerEmail}</b>`;
+    $('#code-input').placeholder = 'НОВЫЙ КОД (СМЕНА ПРИВЯЗКИ)';
+    $('#bind-btn').textContent = 'Сменить';
+  } else if (srv) {
+    $('#bind-state').innerHTML = '<span class="pill bad">не привязан</span> — проверки выполняются, но никому не начисляются';
+  } else {
+    $('#bind-state').innerHTML = '<span class="muted">нет связи с сервером, состояние привязки неизвестно</span>';
+  }
+
+  $('#s-checks').textContent = d.state.checksToday;
+  $('#s-traffic').textContent = fmtBytes(d.state.bytesToday);
+  $('#s-total').textContent = srv ? srv.checksServed.toLocaleString('ru-RU') : d.state.checksTotal;
+
+  const blocked = srv && !srv.counted;
+  $('#status-note').hidden = !blocked;
+  if (blocked) {
+    $('#status-note').textContent = REASONS[srv.notCountedReason] || srv.notCountedReason;
+    if (srv.vpnReason) $('#status-note').textContent += ' (признак: ' + srv.vpnReason + ')';
+  }
+
+  if (!dirty) {
+    $('#limit').value = d.settings.maxChecksPerMinute;
+    $('#limit-val').textContent = d.settings.maxChecksPerMinute;
+  }
+  $('#autostart').checked = d.settings.autostart;
+}
+
+async function refresh() {
+  try { render(await api('/api/state')); } catch (e) { console.error(e); }
+  try {
+    const { entries } = await api('/api/log');
+    $('#log').innerHTML = entries.length ? entries.slice(0, 12).map((e) => `
+      <tr>
+        <td class="muted">${new Date(e.at).toLocaleTimeString('ru-RU')}</td>
+        <td class="dom">${e.domain}</td>
+        <td>${e.stage === 'ok'
+          ? `<span class="pill ok">${e.status}</span>`
+          : `<span class="pill bad">${e.stage}${e.error ? ' ' + e.error : ''}</span>`}</td>
+        <td class="muted">${e.ms} мс</td>
+      </tr>`).join('') : '<tr><td class="muted">пока пусто</td></tr>';
+    if (entries.length) {
+      const e = entries[0];
+      $('#sample').textContent = JSON.stringify({
+        kind: e.kind, stage: e.stage, httpStatus: e.status, totalMs: e.ms,
+      }, null, 1);
+    }
+  } catch (e) { console.error(e); }
+}
+
+$('#toggle-btn').addEventListener('click', async () => {
+  await api('/api/settings', { method: 'POST', body: JSON.stringify({ active: !latest.state.working }) });
+  refresh();
+});
+$('#pause-btn').addEventListener('click', async () => {
+  await api('/api/settings', { method: 'POST', body: JSON.stringify({ pauseMinutes: 120 }) });
+  refresh();
+});
+$('#limit').addEventListener('input', (e) => { dirty = true; $('#limit-val').textContent = e.target.value; });
+$('#limit').addEventListener('change', async (e) => {
+  await api('/api/settings', { method: 'POST', body: JSON.stringify({ maxChecksPerMinute: Number(e.target.value) }) });
+  dirty = false; refresh();
+});
+$('#autostart').addEventListener('change', async (e) => {
+  await api('/api/settings', { method: 'POST', body: JSON.stringify({ autostart: e.target.checked }) });
+  refresh();
+});
+$('#bind-btn').addEventListener('click', async () => {
+  const code = $('#code-input').value.trim();
+  const note = $('#bind-msg');
+  if (!code) return;
+  $('#bind-btn').disabled = true;
+  const result = await api('/api/bind', { method: 'POST', body: JSON.stringify({ partnerCode: code }) });
+  note.hidden = false;
+  note.className = 'note ' + (result.ok ? 'ok' : 'warn');
+  note.textContent = result.ok ? 'Готово, агент привязан.' : result.message;
+  if (result.ok) $('#code-input').value = '';
+  $('#bind-btn').disabled = false;
+  refresh();
+});
+
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>
